@@ -1,0 +1,1141 @@
+{
+  "cells": [
+    {
+      "cell_type": "markdown",
+      "metadata": {
+        "_cell_guid": "b686144b-c7e5-a01a-9480-a764811a2f53"
+      },
+      "source": [
+        "Since this is my first Kaggle submission, I wanted to keep it fairly straightforward, and follow some of the excellent solutions already out there.  In particular, the logic behind this largely follows the following three workbooks: \n",
+        "\n",
+        "\n",
+        "Since this is my first kaggle submission, I wanted to keep things fairly straightforward, and follow the approach of some of the excellent solutions already out there.  In particular, this notebook is largely based on the following three notebooks, but I've tried to build on these by adding some other elements, such as a collinearity matrix, and a standard multiple linear regression for comparison.  \n",
+        "- [Apapiu](https://www.kaggle.com/apapiu/house-prices-advanced-regression-techniques/regularized-linear-models)\n",
+        "- [Neviadomski](https://www.kaggle.com/neviadomski/house-prices-advanced-regression-techniques/how-to-get-to-top-25-with-simple-model-sklearn)\n",
+        "- [Juliencs](https://www.kaggle.com/juliencs/house-prices-advanced-regression-techniques/a-study-on-regression-applied-to-the-ames-dataset). \n",
+        "\n",
+        "Also, there is some very nice exploratory data analysis and plots in this notebook: [xchmiao](https://www.kaggle.com/xchmiao/detailed-data-exploration-in-python).\n",
+        "\n",
+        "Comments welcome!"
+      ]
+    },
+    {
+      "cell_type": "markdown",
+      "metadata": {
+        "_cell_guid": "91e9523a-76e6-7570-6d75-fa0b80d4225e"
+      },
+      "source": [
+        "## Import packages"
+      ]
+    },
+    {
+      "cell_type": "code",
+      "execution_count": null,
+      "metadata": {
+        "_cell_guid": "05672aa3-6cad-3b1d-94ec-49915e7ae28b"
+      },
+      "outputs": [],
+      "source": [
+        "# data analysis and wrangling\n",
+        "import pandas as pd\n",
+        "import numpy as np\n",
+        "\n",
+        "# visualization\n",
+        "import seaborn as sns\n",
+        "import matplotlib\n",
+        "import matplotlib.pyplot as plt\n",
+        "%matplotlib inline\n",
+        "\n",
+        "# Stats\n",
+        "from scipy.stats.stats import skew\n",
+        "from scipy.stats.stats import pearsonr"
+      ]
+    },
+    {
+      "cell_type": "markdown",
+      "metadata": {
+        "_cell_guid": "33c01ba2-824c-3df2-ad55-7723c2b432ba"
+      },
+      "source": [
+        "## Import data"
+      ]
+    },
+    {
+      "cell_type": "code",
+      "execution_count": null,
+      "metadata": {
+        "_cell_guid": "023be912-8b61-d945-b76f-dc3d87d38ba0"
+      },
+      "outputs": [],
+      "source": [
+        "# Test and training set\n",
+        "train = pd.read_csv('../input/train.csv')\n",
+        "test = pd.read_csv('../input/test.csv')\n",
+        "# Combine into one dataset for the purposes of cleaning, and make sure that index continues\n",
+        "data_full = pd.concat([train, test], keys = ['train', 'test'])#ignore_index = True)"
+      ]
+    },
+    {
+      "cell_type": "code",
+      "execution_count": null,
+      "metadata": {
+        "_cell_guid": "31f2d460-a838-f4b2-3e41-04c6c795687e"
+      },
+      "outputs": [],
+      "source": [
+        "# What does the dataset look like?\n",
+        "train.head(3)"
+      ]
+    },
+    {
+      "cell_type": "markdown",
+      "metadata": {
+        "_cell_guid": "7fbdd868-1401-5ae1-8c9c-f4d6ae0c21b2"
+      },
+      "source": [
+        "## Data cleansing"
+      ]
+    },
+    {
+      "cell_type": "markdown",
+      "metadata": {
+        "_cell_guid": "95eb22d3-54eb-5fdc-09b8-810000c97ab2"
+      },
+      "source": [
+        "### Dealing with nulls"
+      ]
+    },
+    {
+      "cell_type": "code",
+      "execution_count": null,
+      "metadata": {
+        "_cell_guid": "9bd57166-a468-b5a8-d200-4b79a67be2fe"
+      },
+      "outputs": [],
+      "source": [
+        "# Count the uniques for each column for a given dataframe\n",
+        "def df_uniques(df):\n",
+        "    print('Col name,', 'Number of nulls,', 'Number of unique values', '% of nulls')\n",
+        "    list_of_features = []\n",
+        "    for col in df:\n",
+        "        l = [col, df[col].shape[0] - df[col].count(), df[col].unique().shape[0], '%.3f' %((df[col].shape[0] - df[col].count()) / df[col].shape[0])]\n",
+        "        list_of_features.append(l)\n",
+        "    # Sort by the number of NULLs: \n",
+        "    list_of_features = sorted(list_of_features, key = lambda x: x[1], reverse = True)\n",
+        "    return list_of_features\n",
+        "\n",
+        "df_uniques(train)"
+      ]
+    },
+    {
+      "cell_type": "code",
+      "execution_count": null,
+      "metadata": {
+        "_cell_guid": "ad0efad3-bb31-88da-ad99-2a656f937fb7"
+      },
+      "outputs": [],
+      "source": [
+        "# The following features have a crazy number of nulls \n",
+        "# PoolQC, MiscFeature, Alley, Fence, FireplaceQu, LotFrontage \n",
+        "\n",
+        "# From looking at the data dictionary, these NAs are not necessarily a problem - but \"NA\" or nUll is misleading, so let's replace them\n",
+        "# Alley: NA = no alley -> replace with \"None\"\n",
+        "# MiscFeature: other features (e.g. tennis court) - NA = no other feature -> replace with \"None\"\n",
+        "# Fence: NA = no fence -> replace with \"None\"\n",
+        "# FireplaceQu: you guessed it -> replace with \"None\""
+      ]
+    },
+    {
+      "cell_type": "code",
+      "execution_count": null,
+      "metadata": {
+        "_cell_guid": "6fdb10b4-2a3e-b4ab-1784-79d7c823bfde"
+      },
+      "outputs": [],
+      "source": [
+        "# Let's get a neat list of the null columns - need to combine both datasets for this\n",
+        "null_columns = [col for col in data_full.columns if data_full[col].isnull().any()]\n",
+        "print(null_columns)"
+      ]
+    },
+    {
+      "cell_type": "code",
+      "execution_count": null,
+      "metadata": {
+        "_cell_guid": "93f38d60-2412-602a-bbc6-0211b10ee825"
+      },
+      "outputs": [],
+      "source": [
+        "# Define a function to replace nulls for many columns: \n",
+        "def fill_nulls(df, col_list, na_val):\n",
+        "    for col in col_list:\n",
+        "        df[col].fillna(value = na_val, inplace = True)\n",
+        "    return df"
+      ]
+    },
+    {
+      "cell_type": "code",
+      "execution_count": null,
+      "metadata": {
+        "_cell_guid": "d3a5157b-945a-6e7e-2184-07db149d3af4"
+      },
+      "outputs": [],
+      "source": [
+        "# Categorical fields with an obvious meaning NA -> 'None'\n",
+        "nulls_to_none = ['PoolQC', 'Fence', 'MiscFeature', 'Alley', 'FireplaceQu', 'MasVnrType', 'BsmtCond', \n",
+        "                 'BsmtExposure', 'BsmtFinType1', 'BsmtFinType2', 'Electrical', 'GarageType', 'GarageFinish', \n",
+        "                 'GarageQual', 'GarageCond', 'KitchenQual']\n",
+        "# Numerical fields with an obvious meaning NA -> 0\n",
+        "nulls_to_zero = ['LotFrontage', 'MasVnrArea', 'BsmtQual', 'GarageYrBlt', 'BsmtFinSF1', 'BsmtFinSF2', 'BsmtFullBath', \n",
+        "                 'BsmtHalfBath', 'BsmtUnfSF', 'GarageArea', 'GarageCars', 'TotalBsmtSF']\n",
+        "\n",
+        "# Categorical fields with a less obvious interpretation - guessing that NA means 'None' (there are very few anyway)\n",
+        "nulls_to_zero_2 = ['MSZoning', 'Utilities', 'Exterior1st', 'Exterior2nd']\n",
+        "nulls_to_other = ['SaleType', 'Functional']\n",
+        "\n",
+        "# Apply to both test and training sets:\n",
+        "for df in [train, test]: \n",
+        "    fill_nulls(df, nulls_to_none, 'None')\n",
+        "    fill_nulls(df, nulls_to_zero, 0)\n",
+        "    fill_nulls(df, nulls_to_zero_2, 0)\n",
+        "    fill_nulls(df, nulls_to_other, 'Other')\n",
+        "# NB we still have 'data_full' which has not been updated yet"
+      ]
+    },
+    {
+      "cell_type": "markdown",
+      "metadata": {
+        "_cell_guid": "63474277-135b-3939-167a-d96587dfaa00"
+      },
+      "source": [
+        "### Data types\n",
+        "Let's make sure everything is in the correct data type.  Pandas will have a go at importing things correctly, but this is good practice to make sure that things haven't gone awry. Ultimately we'll want to use dummy variables for categorical data anyway."
+      ]
+    },
+    {
+      "cell_type": "code",
+      "execution_count": null,
+      "metadata": {
+        "_cell_guid": "30673002-7c03-34be-5a7d-cc59b9cce06a"
+      },
+      "outputs": [],
+      "source": [
+        "# Print out data types\n",
+        "def data_types(df):\n",
+        "    for col in df:\n",
+        "        print(col, type(df[col][1]))   "
+      ]
+    },
+    {
+      "cell_type": "code",
+      "execution_count": null,
+      "metadata": {
+        "_cell_guid": "7a4f5a82-83fd-e0c5-3fbf-23c22f5e189a"
+      },
+      "outputs": [],
+      "source": [
+        "data_types(train)"
+      ]
+    },
+    {
+      "cell_type": "code",
+      "execution_count": null,
+      "metadata": {
+        "_cell_guid": "8880c8a6-0b85-5bd4-4aaf-2643592778df",
+        "collapsed": true
+      },
+      "outputs": [],
+      "source": [
+        "# By pasting the above list into a spreadsheet and cross checking with the data dictionary, we can \n",
+        "# see which category each field should be\n",
+        "\n",
+        "# statsmodel requires all fieldsnames to begin with letters, so let's sort this out now.\n",
+        "train = train.rename(columns = {'1stFlrSF': 'FirstFlrSF','2ndFlrSF': 'SecondFlrSF','3SsnPorch': 'ThreeSsnPorch'})\n",
+        "test = test.rename(columns = {'1stFlrSF': 'FirstFlrSF','2ndFlrSF': 'SecondFlrSF','3SsnPorch': 'ThreeSsnPorch'})\n",
+        "data_full = pd.concat([train, test], keys = ['train', 'test'])\n",
+        "\n",
+        "# Makes lists of each type\n",
+        "categories = ['MSSubClass', 'MSZoning', 'Street', 'Alley', 'LotShape', 'LandContour', 'Utilities', 'LotConfig', \n",
+        "              'LandSlope', 'Neighborhood', 'Condition1', 'Condition2', 'BldgType', 'HouseStyle', 'YearBuilt', \n",
+        "              'YearRemodAdd', 'RoofStyle', 'RoofMatl', 'Exterior1st', 'Exterior2nd', 'MasVnrType', 'ExterQual', \n",
+        "              'ExterCond', 'Foundation', 'BsmtQual', 'BsmtCond', 'BsmtExposure', 'BsmtFinType2', 'Heating', \n",
+        "              'HeatingQC', 'Electrical', 'KitchenQual', 'Functional', 'FireplaceQu', 'GarageType', 'GarageYrBlt', \n",
+        "              'GarageFinish', 'GarageCars', 'PoolQC', 'Fence', 'MiscFeature', 'MoSold', 'YrSold', 'SaleType', \n",
+        "              'SaleCondition']\n",
+        "floats = ['LotFrontage', 'LotArea', 'MasVnrArea', 'BsmtFinSF1', 'BsmtFinSF2', 'BsmtUnfSF', 'TotalBsmtSF', \n",
+        "          'FirstFlrSF', 'SecondFlrSF', 'LowQualFinSF', 'GrLivArea', 'GarageArea', 'WoodDeckSF', 'OpenPorchSF', \n",
+        "          'EnclosedPorch', 'ThreeSsnPorch', 'ScreenPorch', 'PoolArea', 'MiscVal']\n",
+        "\n",
+        "ints = ['OverallQual', 'OverallCond', 'BsmtFullBath', 'BsmtHalfBath', 'FullBath', \n",
+        "         'BedroomAbvGr', 'KitchenAbvGr', 'TotRmsAbvGrd', 'Fireplaces']\n",
+        "\n",
+        "bools = ['CentralAir']\n",
+        "\n",
+        "feature_names = categories + floats + ints + bools\n",
+        "\n",
+        "# Define a function for converting a list of columns to a particular type: \n",
+        "def convert_col_type(df, cols, type):\n",
+        "    for col in cols:\n",
+        "        df[col] = df[col].astype(type)"
+      ]
+    },
+    {
+      "cell_type": "code",
+      "execution_count": null,
+      "metadata": {
+        "_cell_guid": "f25db1a1-c930-0901-3a22-593083908b3b",
+        "collapsed": true
+      },
+      "outputs": [],
+      "source": [
+        "# Convert each column for both test and training sets:\n",
+        "for df in [train, test]:\n",
+        "    convert_col_type(df, categories, 'category')\n",
+        "    convert_col_type(df, floats, 'float')\n",
+        "    convert_col_type(df, ints, 'int')\n",
+        "    convert_col_type(df, bools, 'bool')\n",
+        "    \n",
+        "# Re-define the full dataset\n",
+        "data_full = pd.concat([train, test], keys = ['train', 'test'])"
+      ]
+    },
+    {
+      "cell_type": "code",
+      "execution_count": null,
+      "metadata": {
+        "_cell_guid": "736a952d-b69d-f93c-39c6-a8daa2baabdc"
+      },
+      "outputs": [],
+      "source": [
+        "# Check new data types  \n",
+        "data_types(train)"
+      ]
+    },
+    {
+      "cell_type": "markdown",
+      "metadata": {
+        "_cell_guid": "40423044-d260-ba61-eff4-b5ee82181c98"
+      },
+      "source": [
+        "## Collinearity\n",
+        "First, let's check to see which predictors are correlated; there are many features that essentially encode the same information in different way "
+      ]
+    },
+    {
+      "cell_type": "code",
+      "execution_count": null,
+      "metadata": {
+        "_cell_guid": "ce136ff4-28e1-baba-37ba-3b79df9fdac0"
+      },
+      "outputs": [],
+      "source": [
+        "# Compute the correlation matrix\n",
+        "corr = data_full.corr()\n",
+        "\n",
+        "# Generate a mask for the upper triangle\n",
+        "mask = np.zeros_like(corr, dtype=np.bool)\n",
+        "mask[np.triu_indices_from(mask)] = True\n",
+        "\n",
+        "# Set up the matplotlib figure\n",
+        "f, ax = plt.subplots(figsize=(11, 9))\n",
+        "\n",
+        "# Draw the heatmap with the mask and correct aspect ratio\n",
+        "sns.heatmap(corr, mask=mask, #cmap=cmap, vmax=.3,\n",
+        "            square=True,\n",
+        "            linewidths=.5, cbar_kws={\"shrink\": .5}, ax=ax)\n",
+        "\n",
+        "# Simpler version (but too small to be useful)\n",
+        "#plt.matshow(data_full.corr())"
+      ]
+    },
+    {
+      "cell_type": "code",
+      "execution_count": null,
+      "metadata": {
+        "_cell_guid": "f7fade0e-3c69-1b84-602f-7822977e582f"
+      },
+      "outputs": [],
+      "source": [
+        "# Which predictors are mostly closely correlated with SalePrice?\n",
+        "corr['SalePrice'].sort_values(ascending = False)"
+      ]
+    },
+    {
+      "cell_type": "markdown",
+      "metadata": {
+        "_cell_guid": "239c5438-84b2-49ac-4497-c963ab459a16"
+      },
+      "source": [
+        "The most highly correlated predictors relate to size: OverallQual, GrLivArea, GarageCars, GarageArea, TotalBsmtSF, FirstFlrSF. This intuitively makes sense."
+      ]
+    },
+    {
+      "cell_type": "markdown",
+      "metadata": {
+        "_cell_guid": "a05ca52a-0786-9d61-501f-8520b61a9575"
+      },
+      "source": [
+        "## Motivating plots"
+      ]
+    },
+    {
+      "cell_type": "code",
+      "execution_count": null,
+      "metadata": {
+        "_cell_guid": "3d0976ae-908d-b940-82be-f1235e640494"
+      },
+      "outputs": [],
+      "source": [
+        "# What's the distribution of prices?\n",
+        "sales_price = train['SalePrice']\n",
+        "graph = sns.distplot(sales_price)"
+      ]
+    },
+    {
+      "cell_type": "code",
+      "execution_count": null,
+      "metadata": {
+        "_cell_guid": "8c3fffad-8fc7-fa46-6666-c86e9a93afac"
+      },
+      "outputs": [],
+      "source": [
+        "# Let's log-tranform this: \n",
+        "sales_prices_log = np.log1p(sales_price)\n",
+        "graph = sns.distplot(sales_prices_log)"
+      ]
+    },
+    {
+      "cell_type": "code",
+      "execution_count": null,
+      "metadata": {
+        "_cell_guid": "f2f7714c-9bc8-8a43-df95-b745946b1c17"
+      },
+      "outputs": [],
+      "source": [
+        "# This looks much better, so let's replace the SalePrice with the log-transformed version (will need to exponentiate predictions)\n",
+        "train['SalePrice'] = np.log1p(train['SalePrice'])\n",
+        "# Re-define the full dataset - and work on this until we are ready to split out test and train sets again\n",
+        "data_full = pd.concat([train, test], keys = ['train', 'test'])"
+      ]
+    },
+    {
+      "cell_type": "code",
+      "execution_count": null,
+      "metadata": {
+        "_cell_guid": "0dcbb074-eb74-c741-e96a-fdc4dd3fb563"
+      },
+      "outputs": [],
+      "source": [
+        "# Let's look at the plots of the important features identified above with SalePrice\n",
+        "fig, axs = plt.subplots(ncols=3, nrows=4, figsize = (20,10))\n",
+        "sns.regplot(x='OverallQual', y='SalePrice', data=data_full, ax=axs[0,0])\n",
+        "sns.regplot(x='GrLivArea', y='SalePrice', data=data_full, ax=axs[0,1])\n",
+        "sns.regplot(x='GarageCars',y='SalePrice', data=data_full, ax=axs[0,2])\n",
+        "sns.regplot(x='GarageArea',y='SalePrice', data=data_full, ax=axs[1,0])\n",
+        "sns.regplot(x='TotalBsmtSF',y='SalePrice', data=data_full, ax=axs[1,1])\n",
+        "sns.regplot(x='FirstFlrSF',y='SalePrice', data=data_full, ax=axs[1,2])\n",
+        "sns.regplot(x='FullBath',y='SalePrice', data=data_full, ax=axs[2,0])\n",
+        "sns.regplot(x='TotRmsAbvGrd',y='SalePrice', data=data_full, ax=axs[2,1])\n",
+        "sns.regplot(x='YearBuilt',y='SalePrice', data=data_full, ax=axs[2,2])\n",
+        "sns.regplot(x='MasVnrArea',y='SalePrice', data=data_full, ax=axs[3,0])\n",
+        "sns.regplot(x='Fireplaces',y='SalePrice', data=data_full, ax=axs[3,1])\n",
+        "sns.regplot(x='BsmtFinSF1',y='SalePrice', data=data_full, ax=axs[3,2])\n",
+        "fig.tight_layout()"
+      ]
+    },
+    {
+      "cell_type": "markdown",
+      "metadata": {
+        "_cell_guid": "56441696-9ba1-fec1-42fe-34757c37cd97"
+      },
+      "source": [
+        "Many of these are also skewed to the left, so let's log-transform any variables with a skewness greater than 1"
+      ]
+    },
+    {
+      "cell_type": "code",
+      "execution_count": null,
+      "metadata": {
+        "_cell_guid": "048aa5a8-4ad7-549b-49f6-5482d3684f2a"
+      },
+      "outputs": [],
+      "source": [
+        "skewed_features = data_full[floats].apply(lambda x: skew(x.dropna()))\n",
+        "skewed_features = skewed_features[skewed_features > 1]\n",
+        "skewed_features.sort_values(ascending = False)"
+      ]
+    },
+    {
+      "cell_type": "code",
+      "execution_count": null,
+      "metadata": {
+        "_cell_guid": "e833a5b0-bda2-28a3-f0d0-9f3ba80b6ddb",
+        "collapsed": true
+      },
+      "outputs": [],
+      "source": [
+        "skewed_features = skewed_features.index"
+      ]
+    },
+    {
+      "cell_type": "code",
+      "execution_count": null,
+      "metadata": {
+        "_cell_guid": "3b7de7e0-9433-06d8-74d3-f38aed0414ee",
+        "collapsed": true
+      },
+      "outputs": [],
+      "source": [
+        "# Now let's log-transform the skewed features\n",
+        "for col in skewed_features:\n",
+        "   data_full[col] = np.log1p(data_full[col])"
+      ]
+    },
+    {
+      "cell_type": "markdown",
+      "metadata": {
+        "_cell_guid": "23df4957-9156-7751-dd50-3559025e7971"
+      },
+      "source": [
+        "## Standardising numeric features"
+      ]
+    },
+    {
+      "cell_type": "code",
+      "execution_count": null,
+      "metadata": {
+        "_cell_guid": "1f1fa2de-d89a-4976-3955-ea7047a9d0d7",
+        "collapsed": true
+      },
+      "outputs": [],
+      "source": [
+        "# Standardise numeric features (normalise)\n",
+        "numeric_features = data_full.loc[:,floats]\n",
+        "numeric_features_st = (numeric_features - numeric_features.mean())/numeric_features.std()"
+      ]
+    },
+    {
+      "cell_type": "code",
+      "execution_count": null,
+      "metadata": {
+        "_cell_guid": "75b93c52-8d29-4500-55cf-1fa3da002bf4",
+        "collapsed": true
+      },
+      "outputs": [],
+      "source": [
+        "data_full.loc[:,floats] = numeric_features_st"
+      ]
+    },
+    {
+      "cell_type": "markdown",
+      "metadata": {
+        "_cell_guid": "39c61d58-b686-185f-1413-a190156aa22e"
+      },
+      "source": [
+        "### Split test-train sets again"
+      ]
+    },
+    {
+      "cell_type": "code",
+      "execution_count": null,
+      "metadata": {
+        "_cell_guid": "573f9d1a-45da-f367-7bfd-9a0074a8668f",
+        "collapsed": true
+      },
+      "outputs": [],
+      "source": [
+        "# split out the test and train sets again\n",
+        "train = data_full.ix['train']\n",
+        "test = data_full.ix['test']"
+      ]
+    },
+    {
+      "cell_type": "markdown",
+      "metadata": {
+        "_cell_guid": "b40725eb-87ac-5981-25b0-1009e7522769"
+      },
+      "source": [
+        "## Linear regression"
+      ]
+    },
+    {
+      "cell_type": "code",
+      "execution_count": null,
+      "metadata": {
+        "_cell_guid": "31316106-859b-e874-e49e-345c2712403f"
+      },
+      "outputs": [],
+      "source": [
+        "# For the purposes of a multiple regression, let's use statsmodel rather than scikit learn, as it gives us\n",
+        "# more information, such as p-values, and hence, which regressors are important.\n",
+        "import statsmodels.formula.api as smf\n",
+        "\n",
+        "# create a fitted model with the features that are floats: \n",
+        "#lm = smf.ols(formula='SalePrice ~ LotFrontage + LotArea + MasVnrArea + BsmtFinSF1 + BsmtFinSF2 + BsmtUnfSF + TotalBsmtSF + FirstFlrSF + SecondFlrSF + LowQualFinSF + GrLivArea + GarageArea + WoodDeckSF + OpenPorchSF + EnclosedPorch + ThreeSsnPorch + ScreenPorch + PoolArea + MiscVal + OverallQual + OverallCond + BsmtFullBath + BsmtHalfBath + FullBath + BedroomAbvGr + KitchenAbvGr + TotRmsAbvGrd + Fireplaces', data=train).fit()\n",
+        "formula = 'SalePrice ~ ' + ' + '.join(feature_names)\n",
+        "lm = smf.ols(formula=formula, data=train).fit()\n",
+        "\n",
+        "# print the coefficients\n",
+        "lm.summary()"
+      ]
+    },
+    {
+      "cell_type": "code",
+      "execution_count": null,
+      "metadata": {
+        "_cell_guid": "b75f9fb1-0289-a7e0-2130-6fd5701f8349"
+      },
+      "outputs": [],
+      "source": [
+        "# Best features\n",
+        "lm.pvalues.sort_values(ascending = False, inplace=False).tail(10)"
+      ]
+    },
+    {
+      "cell_type": "code",
+      "execution_count": null,
+      "metadata": {
+        "_cell_guid": "c987aaa2-ec1a-d6e8-6104-e44286a9660c"
+      },
+      "outputs": [],
+      "source": [
+        "# Worst features\n",
+        "lm.pvalues.sort_values(ascending = False, inplace=False).head(10)"
+      ]
+    },
+    {
+      "cell_type": "markdown",
+      "metadata": {
+        "_cell_guid": "7ec5684d-8551-82d6-d6cd-118fae96979b"
+      },
+      "source": [
+        "It looks like the most important predictors relate to the type of roofing material (perhaps correlated with certain neighbourhoods, or architecture styles, that are in turn correlated with demographic factors), and features related to the size of the house (LotArea, GrLivArea, OverallQual), and the zone of the area (MSZoning).  This intuitively makes sense.  \n",
+        "\n",
+        "On the other hand, features that are fairly useless relate to remodelling of the house, and exterior surface features.\n",
+        "\n",
+        "Since there are so many features, it would make sense to either remove these by one of the following: \n",
+        "- backward elimination\n",
+        "- principal component analysis\n",
+        "- regularisation to penalise the extra features.  This avoids over-fitting.  In particular, lasso regularisation performs some feature selection for us.\n",
+        "\n",
+        "In this notebook, I'll take the latter approach."
+      ]
+    },
+    {
+      "cell_type": "markdown",
+      "metadata": {
+        "_cell_guid": "c0910b30-f936-7f12-2d25-4101ccd5e4a4"
+      },
+      "source": [
+        "## Splitting the testing and training sets again; define dummy variables for categories"
+      ]
+    },
+    {
+      "cell_type": "code",
+      "execution_count": null,
+      "metadata": {
+        "_cell_guid": "2ac4db26-85b4-4a26-255e-ffe77bf15321"
+      },
+      "outputs": [],
+      "source": [
+        "# Features - remove the thing we're trying to predict!\n",
+        "features = data_full.drop('SalePrice', axis = 1)\n",
+        "\n",
+        "# Create dummy variables - for each categorical data, make several boolean flags\n",
+        "features = pd.get_dummies(features)\n",
+        "\n",
+        "# Make matrices to pass to scikit learn:\n",
+        "X_train = features[:train.shape[0]]\n",
+        "X_test = features[train.shape[0]:]\n",
+        "y = train['SalePrice']\n",
+        "\n",
+        "# Verify that the number of features has been increased due to the dummy variables:\n",
+        "print('Number of features in original dataset, including categorical fields: ', train.shape[1], \n",
+        "      '\\nNumber of features, including dummy variables for categorical fields: ', X_train.shape[1])"
+      ]
+    },
+    {
+      "cell_type": "markdown",
+      "metadata": {
+        "_cell_guid": "71cf409b-fa4c-d20a-f37a-b890167c0f9f"
+      },
+      "source": [
+        "## Ridge regularisation (L2 regularisation)"
+      ]
+    },
+    {
+      "cell_type": "code",
+      "execution_count": null,
+      "metadata": {
+        "_cell_guid": "c7e475e1-46ae-4ec1-fbe6-b0b7be7b2130"
+      },
+      "outputs": [],
+      "source": [
+        "from sklearn.linear_model import Ridge, RidgeCV, ElasticNet, Lasso, LassoCV\n",
+        "from sklearn.model_selection import cross_val_score\n",
+        "#from sklearn.metrics import mean_squared_error"
+      ]
+    },
+    {
+      "cell_type": "code",
+      "execution_count": null,
+      "metadata": {
+        "_cell_guid": "7c796972-6932-0612-6f39-994dead82de5"
+      },
+      "outputs": [],
+      "source": [
+        "# Define root-mean-square-error function - use 10-fold cross-validation\n",
+        "# You have to use neg_mean_squared_error because mean_squared_error will be deprecated in future\n",
+        "def rmse_cv(model):\n",
+        "    rmse = np.sqrt(-cross_val_score(model, X_train, y, scoring=\"neg_mean_squared_error\", cv = 5))\n",
+        "    return rmse\n",
+        "\n",
+        "# Invoke Ridge regularisation\n",
+        "model_ridge = Ridge()"
+      ]
+    },
+    {
+      "cell_type": "code",
+      "execution_count": null,
+      "metadata": {
+        "_cell_guid": "bca9ae91-fe09-7f46-7497-07fb95f491dd"
+      },
+      "outputs": [],
+      "source": [
+        "# Tune parameters - the only parameter is alpha - the larger alpha, the larger the penalty for extra predictors\n",
+        "alphas = [0.1, 0.3, 1, 3, 5, 10, 15, 30, 50, 75]\n",
+        "# Work out the RMSE for each value of the alphas above: \n",
+        "cv_ridge = [rmse_cv(Ridge(alpha = alpha)).mean() for alpha in alphas]\n",
+        "cv_ridge = pd.Series(cv_ridge, index = alphas)"
+      ]
+    },
+    {
+      "cell_type": "code",
+      "execution_count": null,
+      "metadata": {
+        "_cell_guid": "bcbdfd9d-69b6-b8a9-feb5-3ac0a23c0c7c"
+      },
+      "outputs": [],
+      "source": [
+        "# Let's plot the RMSE as a function of alpha\n",
+        "matplotlib.rcParams['figure.figsize'] = (7,3)\n",
+        "cv_ridge.plot(title = 'RMSE as a function of alpha (Ridge regularisation)')\n",
+        "plt.xlabel('alpha')\n",
+        "plt.ylabel('RMSE')"
+      ]
+    },
+    {
+      "cell_type": "markdown",
+      "metadata": {
+        "_cell_guid": "0e152c25-b075-a9d9-eddb-38ef7c02b1b1"
+      },
+      "source": [
+        "We want to chose the value of $\\alpha$ that minimises the chart above. The extreme cases are $\\alpha = 0$, which corresponds to no penalty for each extra predictor, and $\\alpha\\to\\inf$ which corresponds to a null model.  We want a balance between flexibility and over-fitting, which represents the minimium of this chart."
+      ]
+    },
+    {
+      "cell_type": "code",
+      "execution_count": null,
+      "metadata": {
+        "_cell_guid": "4694af10-a767-6935-f30c-7110890beeb7"
+      },
+      "outputs": [],
+      "source": [
+        "cv_ridge.min()"
+      ]
+    },
+    {
+      "cell_type": "code",
+      "execution_count": null,
+      "metadata": {
+        "_cell_guid": "d00a1b24-6c7e-2509-cb2e-79ee5f6961f9"
+      },
+      "outputs": [],
+      "source": [
+        "# This looks like it correpsonds to alpha = 30, so let's fit the model with that.\n",
+        "model_ridge = Ridge(alpha = 30)\n",
+        "model_ridge.fit(X_train, y)"
+      ]
+    },
+    {
+      "cell_type": "code",
+      "execution_count": null,
+      "metadata": {
+        "_cell_guid": "c9f4d6e8-9d77-9481-9be7-1ac662601c4a"
+      },
+      "outputs": [],
+      "source": [
+        "# What are the important coefficients here?\n",
+        "coef_ridge = pd.Series(model_ridge.coef_, index = X_train.columns)\n",
+        "important_coef_ridge = pd.concat([coef_ridge.sort_values().head(10), coef_ridge.sort_values().tail(10)])\n",
+        "matplotlib.rcParams['figure.figsize'] = (8.0, 10.0)\n",
+        "important_coef_ridge.plot(kind = \"barh\")\n",
+        "plt.title('Important coefficients in the Lasso Model')"
+      ]
+    },
+    {
+      "cell_type": "code",
+      "execution_count": null,
+      "metadata": {
+        "_cell_guid": "2c77c75f-0955-b849-fe62-81e760e3aa74"
+      },
+      "outputs": [],
+      "source": [
+        "# How many features were eliminated? \n",
+        "print(\"Ridge picked \" + str(sum(coef_ridge != 0)) + \" features and eliminated the other \" + str(sum(coef_ridge == 0)) + \" features\")"
+      ]
+    },
+    {
+      "cell_type": "code",
+      "execution_count": null,
+      "metadata": {
+        "_cell_guid": "cbc6ec47-25d2-7107-cf19-9c9ed6b93ec4"
+      },
+      "outputs": [],
+      "source": [
+        "# Let's see what the correlation matrix looks like now: \n",
+        "c = coef_ridge[coef_ridge != 0]\n",
+        "corr = features[c.index].corr()\n",
+        "plt.matshow(corr)"
+      ]
+    },
+    {
+      "cell_type": "markdown",
+      "metadata": {
+        "_cell_guid": "4579689c-e67d-82e7-c322-b73fe5c15af7"
+      },
+      "source": [
+        "This is much bigger (more features due to dummy variables) but it looks like lasso has eliminated a lot of the correlated variables that we saw above in the correlation matrix. "
+      ]
+    },
+    {
+      "cell_type": "code",
+      "execution_count": null,
+      "metadata": {
+        "_cell_guid": "3042baee-4674-4b43-7cb7-89ae911109ea",
+        "collapsed": true
+      },
+      "outputs": [],
+      "source": [
+        "#let's look at the residuals as well:\n",
+        "def plot_residuals(model, X_train, y):\n",
+        "    matplotlib.rcParams['figure.figsize'] = (6.0, 6.0)\n",
+        "    preds = pd.DataFrame({\"preds\":model.predict(X_train), \"true\":y})\n",
+        "    preds[\"residuals\"] = preds[\"true\"] - preds[\"preds\"]\n",
+        "    preds.plot(x = \"preds\", y = \"residuals\",kind = \"scatter\")"
+      ]
+    },
+    {
+      "cell_type": "code",
+      "execution_count": null,
+      "metadata": {
+        "_cell_guid": "5f5b5b52-0dd5-354f-e195-90deb4b1b0bd"
+      },
+      "outputs": [],
+      "source": [
+        "plot_residuals(model_ridge, X_train, y)"
+      ]
+    },
+    {
+      "cell_type": "markdown",
+      "metadata": {
+        "_cell_guid": "9e147e5d-9dcc-5bcc-7ccb-6b660d7bc65a"
+      },
+      "source": [
+        "These look pretty good - nicely clustered around 0."
+      ]
+    },
+    {
+      "cell_type": "markdown",
+      "metadata": {
+        "_cell_guid": "75e08652-fe93-df85-68e1-bee48f21018e"
+      },
+      "source": [
+        "## Lasso regularisation (L1 regularisation)\n",
+        "The advantage of Lasso regularisation is that it performs some feature selection.  We'll use Lasso cross-validation to choose the $\\alpha$ for us."
+      ]
+    },
+    {
+      "cell_type": "code",
+      "execution_count": null,
+      "metadata": {
+        "_cell_guid": "64879be3-e4c2-06e5-49da-66bf8b75498e",
+        "collapsed": true
+      },
+      "outputs": [],
+      "source": [
+        "model_lasso = LassoCV(alphas = [0.0001, 0.0003, 0.0006, 0.001, 0.003, 0.006, 0.01, 0.03, 0.06, 0.1, 0.3, 0.6, 1],\n",
+        "                     max_iter = 50000, cv = 10).fit(X_train, y)\n",
+        "# Coefficients of each predictor:\n",
+        "coef_lasso = pd.Series(model_lasso.coef_, index = X_train.columns)"
+      ]
+    },
+    {
+      "cell_type": "code",
+      "execution_count": null,
+      "metadata": {
+        "_cell_guid": "fd5faea4-6b13-6a50-8938-ff4f0097a60c"
+      },
+      "outputs": [],
+      "source": [
+        "# What are the important coefficients here?\n",
+        "important_coef_lasso = pd.concat([coef_lasso.sort_values().head(10), coef_lasso.sort_values().tail(10)])\n",
+        "matplotlib.rcParams['figure.figsize'] = (8.0, 10.0)\n",
+        "important_coef_lasso.plot(kind = \"barh\")\n",
+        "plt.title('Important coefficients in the Lasso Model')"
+      ]
+    },
+    {
+      "cell_type": "markdown",
+      "metadata": {
+        "_cell_guid": "c09caa92-f814-37cf-4858-ff7ace081881"
+      },
+      "source": [
+        "A lot of these are on the list of features picked out by the normal multiple regression without regularisation. Not the hugely negative coefficient for Clay Tile - there is only one house with this feature, so this is not actually a particuarly important feature."
+      ]
+    },
+    {
+      "cell_type": "code",
+      "execution_count": null,
+      "metadata": {
+        "_cell_guid": "03763ae5-5953-e3a2-3db4-10c2d1d01fde"
+      },
+      "outputs": [],
+      "source": [
+        "data_full['RoofMatl'].value_counts()"
+      ]
+    },
+    {
+      "cell_type": "code",
+      "execution_count": null,
+      "metadata": {
+        "_cell_guid": "c9dcaddd-67a4-aca0-abc8-4d8d7cd9d91f"
+      },
+      "outputs": [],
+      "source": [
+        "data_full[data_full['RoofMatl'] == 'ClyTile']['SalePrice']"
+      ]
+    },
+    {
+      "cell_type": "code",
+      "execution_count": null,
+      "metadata": {
+        "_cell_guid": "105f47a8-0a3f-bf14-f541-3eb25e4c08c4"
+      },
+      "outputs": [],
+      "source": [
+        "# How many features were eliminated? \n",
+        "print(\"Lasso picked \" + str(sum(coef_lasso != 0)) + \" features and eliminated the other \" + str(sum(coef_lasso == 0)) + \" features\")"
+      ]
+    },
+    {
+      "cell_type": "code",
+      "execution_count": null,
+      "metadata": {
+        "_cell_guid": "ce892ee1-78ba-8b94-dc81-62748915b001"
+      },
+      "outputs": [],
+      "source": [
+        "# Let's have a look at the residuals of this too.    \n",
+        "plot_residuals(model_lasso, X_train, y)"
+      ]
+    },
+    {
+      "cell_type": "markdown",
+      "metadata": {
+        "_cell_guid": "a703f774-aeb2-f8e2-7173-9154d209d1c0"
+      },
+      "source": [
+        "## Elastic net regularisation"
+      ]
+    },
+    {
+      "cell_type": "code",
+      "execution_count": null,
+      "metadata": {
+        "_cell_guid": "d97bcb6b-4a58-a405-91ae-dc2dfa618baa"
+      },
+      "outputs": [],
+      "source": [
+        "from sklearn.linear_model import ElasticNetCV"
+      ]
+    },
+    {
+      "cell_type": "code",
+      "execution_count": null,
+      "metadata": {
+        "_cell_guid": "56f1e027-d199-d4f9-5868-379f46593da5"
+      },
+      "outputs": [],
+      "source": [
+        "model_elastic = ElasticNetCV(l1_ratio = [0.1, 0.3, 0.5, 0.6, 0.7, 0.8, 0.85, 0.9, 0.95, 1],\n",
+        "                          alphas = [0.0001, 0.0003, 0.0006, 0.001, 0.003, 0.006, \n",
+        "                                    0.01, 0.03, 0.06, 0.1, 0.3, 0.6, 1, 3, 6], \n",
+        "                          max_iter = 50000, cv = 10)\n",
+        "model_elastic.fit(X_train, y)\n",
+        "alpha = model_elastic.alpha_\n",
+        "ratio = model_elastic.l1_ratio_\n",
+        "print(\"Best l1_ratio :\", ratio)\n",
+        "print(\"Best alpha :\", alpha )"
+      ]
+    },
+    {
+      "cell_type": "code",
+      "execution_count": null,
+      "metadata": {
+        "_cell_guid": "582b7dbf-960c-8549-569d-b46936ceb12e"
+      },
+      "outputs": [],
+      "source": [
+        "coef_elastic = pd.Series(model_elastic.coef_, index = X_train.columns)"
+      ]
+    },
+    {
+      "cell_type": "code",
+      "execution_count": null,
+      "metadata": {
+        "_cell_guid": "fe21a39a-2026-b37f-56fc-141c92824e71"
+      },
+      "outputs": [],
+      "source": [
+        "# How many features were eliminated? \n",
+        "print(\"Elastic picked \" + str(sum(coef_elastic != 0)) + \" features and eliminated the other \" + str(sum(coef_elastic == 0)) + \" features\")"
+      ]
+    },
+    {
+      "cell_type": "code",
+      "execution_count": null,
+      "metadata": {
+        "_cell_guid": "b2814f37-f7b2-f73d-fae9-8c87a9facea4"
+      },
+      "outputs": [],
+      "source": [
+        "plot_residuals(model_elastic, X_train, y)"
+      ]
+    },
+    {
+      "cell_type": "markdown",
+      "metadata": {
+        "_cell_guid": "15638ac7-a649-3b4d-21cd-994ae9aeaf78"
+      },
+      "source": [
+        "These look almost identical to the residuals for the Lasso, and the number of features is larger, so it's probably more prone to over-fitting.  I'm sticking with the Lasso regularisation."
+      ]
+    },
+    {
+      "cell_type": "markdown",
+      "metadata": {
+        "_cell_guid": "4a19de1e-00e7-710e-dab9-77e10d1ecc10"
+      },
+      "source": [
+        "# Make predictions"
+      ]
+    },
+    {
+      "cell_type": "code",
+      "execution_count": null,
+      "metadata": {
+        "_cell_guid": "e9bba223-4a31-b597-4201-7ab7d1ddd957"
+      },
+      "outputs": [],
+      "source": [
+        "ridge_preds = np.expm1(model_ridge.predict(X_test))\n",
+        "lasso_preds = np.expm1(model_lasso.predict(X_test))\n",
+        "elastic_preds = np.expm1(model_elastic.predict(X_test))"
+      ]
+    },
+    {
+      "cell_type": "code",
+      "execution_count": null,
+      "metadata": {
+        "_cell_guid": "f76f602a-a565-48e1-e55d-49361c9e8586"
+      },
+      "outputs": [],
+      "source": [
+        "preds = {'ridge': ridge_preds, 'lasso': lasso_preds, 'elastic': elastic_preds}"
+      ]
+    },
+    {
+      "cell_type": "code",
+      "execution_count": null,
+      "metadata": {
+        "_cell_guid": "bde8f6ac-51aa-fd15-5b4e-d8be8e0daf86"
+      },
+      "outputs": [],
+      "source": [
+        "from datetime import datetime"
+      ]
+    },
+    {
+      "cell_type": "code",
+      "execution_count": null,
+      "metadata": {
+        "_cell_guid": "451571fa-aac6-ab23-f06b-87b3d1c41018"
+      },
+      "outputs": [],
+      "source": [
+        "def make_export_table(model):\n",
+        "    kaggle_export = pd.DataFrame({\n",
+        "        'id': test['Id'],\n",
+        "        'SalePrice': preds[model]\n",
+        "    },\n",
+        "    columns = ['id', 'SalePrice'])\n",
+        "    return kaggle_export"
+      ]
+    },
+    {
+      "cell_type": "code",
+      "execution_count": null,
+      "metadata": {
+        "_cell_guid": "0457c9b4-fbbb-0e44-50d4-bdc1374936ef"
+      },
+      "outputs": [],
+      "source": [
+        "for model in ['ridge', 'lasso', 'elastic']:\n",
+        "    filebasename = 'kaggle_export'\n",
+        "    timestamp = datetime.today().strftime('%Y%m%d-%H%M%S')\n",
+        "    filename = filebasename + timestamp + model\n",
+        "    table = make_export_table(model)\n",
+        "    table.to_csv(filename, index = False)"
+      ]
+    },
+    {
+      "cell_type": "markdown",
+      "metadata": {
+        "_cell_guid": "31fd9cda-b6cf-c770-c06a-a9c2fd6acb32"
+      },
+      "source": [
+        "These submissions give the following scores on the public leaderboard. This puts me in the top 31% of submissions as of 3 May 2017.\n",
+        "- Elastic - 0.12414\n",
+        "- Lasso - 0.12377\n",
+        "- Ridge - 0.12431\n",
+        "As others have noted in their notebooks, these scores shows that you can do reasonably well with pretty straightforward models. \n",
+        "\n",
+        "Comments welcome!"
+      ]
+    }
+  ],
+  "metadata": {
+    "_change_revision": 0,
+    "_is_fork": false,
+    "kernelspec": {
+      "display_name": "Python 3",
+      "language": "python",
+      "name": "python3"
+    },
+    "language_info": {
+      "codemirror_mode": {
+        "name": "ipython",
+        "version": 3
+      },
+      "file_extension": ".py",
+      "mimetype": "text/x-python",
+      "name": "python",
+      "nbconvert_exporter": "python",
+      "pygments_lexer": "ipython3",
+      "version": "3.6.0"
+    }
+  },
+  "nbformat": 4,
+  "nbformat_minor": 0
+}
